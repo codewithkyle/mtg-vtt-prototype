@@ -16,7 +16,7 @@ pub async fn run() {
     cfg_if::cfg_if! {
         if #[cfg(target_arch="wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+            console_log::init_with_level(log::Level::Debug).expect("Couldn't initialize logger");
         } else {
             env_logger::init();
         }
@@ -42,4 +42,35 @@ pub async fn run() {
                 .expect("Couldn't append canvas to document body");
         }
     }
+
+    let _ = event_loop.run(move |event, control_flow| match event {
+        Event::WindowEvent {
+            ref event,
+            window_id,
+        } if window_id == window.id() => {
+            match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => {
+                    log::info!("{:?}", event);
+                    control_flow.exit()
+                },
+                WindowEvent::CursorMoved { device_id, position } => {
+                    log::info!("{:?}: {:?}", device_id, position);
+                },
+                WindowEvent::MouseInput { device_id, state, button } => {
+                    log::info!("{:?}: {:?} ({:?})", device_id, button, state);
+                },
+                _ => {}
+            }
+        },
+        _ => {}
+    });
 }
