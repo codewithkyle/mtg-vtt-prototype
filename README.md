@@ -4,7 +4,7 @@ The goal of this project is to prototype a virtual tabletop engine written in Ru
 
 #### Goals
 
-- [ ] Connect to canvas
+- [x] Connect to canvas
 - [ ] Render card image
 - [ ] Send & process mouse events
 - [ ] Send & process keyboard events
