@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG VTT Prototype</title>
+    <style>
+        body {
+            margin: 0;
+        }
+        canvas {
+            background-color: #fff;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+
+<body id="wasm-example">
+  <script type="module">
+      import init from "./pkg/vtt.js";
+      init().then(() => {
+          console.log("WASM Loaded");
+      }).catch(error => {
+        if (!error.message.startsWith("Using exceptions for control flow,")) {
+            throw error;
+        }
+      });
+  </script>
+</body>
+
+</html>
