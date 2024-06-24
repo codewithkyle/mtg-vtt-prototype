@@ -1,14 +1,18 @@
+use tabletop::Tabletop;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use cgmath::prelude::*;
-use wgpu::util::DeviceExt;
+mod renderer;
+mod texture;
+mod card;
+mod tabletop;
+use renderer::Renderer;
 
 use winit::{
     event::*,
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowBuilder},
+    window::WindowBuilder,
 };
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -43,33 +47,41 @@ pub async fn run() {
         }
     }
 
+    let mut renderer = Renderer::new(&window).await;
+    let tabletop = Tabletop::new();
+
     let _ = event_loop.run(move |event, control_flow| match event {
         Event::WindowEvent {
             ref event,
             window_id,
-        } if window_id == window.id() => {
-            match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Escape),
-                            ..
-                        },
-                    ..
-                } => {
-                    log::info!("{:?}", event);
-                    control_flow.exit()
-                },
-                WindowEvent::CursorMoved { device_id, position } => {
-                    log::info!("{:?}: {:?}", device_id, position);
-                },
-                WindowEvent::MouseInput { device_id, state, button } => {
-                    log::info!("{:?}: {:?} ({:?})", device_id, button, state);
-                },
-                _ => {}
+        } if window_id == renderer.window().id() => match event {
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        physical_key: PhysicalKey::Code(KeyCode::Escape),
+                        ..
+                    },
+                ..
+            } => {
+                log::info!("{:?}", event);
+                control_flow.exit()
             }
+            WindowEvent::CursorMoved {
+                device_id,
+                position,
+            } => {
+                log::info!("{:?}: {:?}", device_id, position);
+            }
+            WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+            } => {
+                log::info!("{:?}: {:?} ({:?})", device_id, button, state);
+            }
+            _ => {}
         },
         _ => {}
     });
