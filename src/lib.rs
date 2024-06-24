@@ -2,10 +2,10 @@ use tabletop::Tabletop;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-mod renderer;
-mod texture;
 mod card;
+mod renderer;
 mod tabletop;
+mod texture;
 use renderer::Renderer;
 
 use winit::{
@@ -47,6 +47,7 @@ pub async fn run() {
         }
     }
 
+    let mut surface_configured = false;
     let mut renderer = Renderer::new(&window).await;
     let tabletop = Tabletop::new();
 
@@ -80,6 +81,33 @@ pub async fn run() {
                 button,
             } => {
                 log::info!("{:?}: {:?} ({:?})", device_id, button, state);
+            }
+            WindowEvent::Resized(physical_size) => {
+                surface_configured = true;
+                renderer.resize(*physical_size);
+            }
+            WindowEvent::RedrawRequested => {
+                renderer.window().request_redraw();
+
+                if !surface_configured {
+                    return;
+                }
+
+                renderer.update();
+
+                match renderer.render() {
+                    Ok(_) => {}
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        renderer.resize(renderer.size)
+                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                        log::error!("OutOfMemory");
+                        control_flow.exit();
+                    }
+                    Err(wgpu::SurfaceError::Timeout) => {
+                        log::warn!("Surface Timeout");
+                    }
+                }
             }
             _ => {}
         },

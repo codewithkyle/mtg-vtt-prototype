@@ -42,7 +42,7 @@ pub struct Renderer<'a> {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+    pub size: winit::dpi::PhysicalSize<u32>,
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
