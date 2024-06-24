@@ -1,12 +1,17 @@
 use std::mem;
-use wgpu::util::{DeviceExt, RenderEncoder};
+use cgmath::Rotation3;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
+
+use crate::card::Card;
+use crate::tabletop::Tabletop;
+use crate::texture::Texture;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
-    pos: [f32; 3],
-    tex_cords: [f32; 2],
+    pub position: [f32; 3],
+    pub tex_coords: [f32; 2],
 }
 
 impl Vertex {
@@ -18,7 +23,7 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x2,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
@@ -31,14 +36,14 @@ impl Vertex {
 }
 
 pub struct Instance {
-    pos: cgmath::Vector3<f32>,
+    position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
 }
 
 impl Instance {
     pub fn to_raw(&self) -> InstanceRaw {
         InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.pos)
+            model: (cgmath::Matrix4::from_translation(self.position)
                 * cgmath::Matrix4::from(self.rotation))
             .into(),
         }
@@ -88,17 +93,16 @@ pub struct Renderer<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
+    aspect_ratio: f32,
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
     texture_bind_group_layout: wgpu::BindGroupLayout,
-    instance_buffer: wgpu::Buffer,
 }
 
 impl<'a> Renderer<'a> {
     pub async fn new(window: &'a Window) -> Renderer<'a> {
         let size = window.inner_size();
+        let aspect_ratio = size.width as f32 / size.height as f32;
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
@@ -199,7 +203,14 @@ impl<'a> Renderer<'a> {
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -221,32 +232,14 @@ impl<'a> Renderer<'a> {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(&[] as &[u8]),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(&[] as &[u8]),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&[] as &[u8]),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
         Self {
             window,
             device,
             queue,
             config,
             size,
+            aspect_ratio,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            instance_buffer,
             surface,
             texture_bind_group_layout,
         }
@@ -259,6 +252,7 @@ impl<'a> Renderer<'a> {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
+            self.aspect_ratio = new_size.width as f32 / new_size.height as f32;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
@@ -267,7 +261,28 @@ impl<'a> Renderer<'a> {
 
     pub fn update(&mut self) {}
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn prerender(&mut self, tabletop: &Tabletop) -> (Vec<Vertex>, Vec<u16>) {
+        let mut vertices: Vec<Vertex> = vec![];
+        let mut indices: Vec<u16> = vec![];
+
+        for _card in tabletop.cards.iter() {
+            for vert in Card::create_vertices(self.aspect_ratio) {
+                vertices.push(vert);
+            }
+            for idx in Card::create_indices() {
+                indices.push(idx);
+            }
+        }
+
+        (vertices, indices)
+    }
+
+    pub fn render(
+        &mut self,
+        vertices: Vec<Vertex>,
+        indices: Vec<u16>,
+    ) -> Result<(), wgpu::SurfaceError> {
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -277,6 +292,63 @@ impl<'a> Renderer<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(vertices.as_slice()),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(indices.as_slice()),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        let num_indices = indices.len() as u32;
+        let instances: Vec<Instance> = vec![];
+
+        let diffuse_bytes = include_bytes!("card.png");
+        let diffuse_texture =
+            Texture::from_bytes(&self.device, &self.queue, diffuse_bytes, "card.png").unwrap();
+        let diffuse_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
+
+        let instances = (0..1)
+            .flat_map(|_| {
+                (0..1).map(move |_| {
+                    let position = cgmath::Vector3 {
+                        x: 0.1,
+                        y: 0.1,
+                        z: 0.0,
+                    };
+
+                    let rotation = cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0));
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -300,12 +372,12 @@ impl<'a> Renderer<'a> {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            //render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.set_bind_group(0, &diffuse_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-            //render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            render_pass.draw_indexed(0..num_indices, 0, 0..instances.len() as _);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
